@@ -1,0 +1,3 @@
+#~/bin/bash
+
+sed '/CVE-/!d' ReportedCVE > Output.txt

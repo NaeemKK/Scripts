@@ -1,0 +1,6 @@
+#!/bin/bash
+
+diff -r poky-yocto-2.0.2 poky-yocto-2.0.3 \
+| grep poky-yocto-2.0.3 | awk '{print $4}' \
+| grep CVE \
+| while read -r file; do find ./poky-yocto-2.0.3 -name "$file"; done > result.txt
