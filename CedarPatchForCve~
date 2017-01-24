@@ -1,0 +1,88 @@
+#!/bin/bash
+
+## Author : Naeem Khan
+## Mentor Graphics
+## Script to list CVE to be patched from yocto latest release and cve-check-tool.Remove duplicates and check if Patches are already present in our MEL release.Finally, Check for patches which can be found in Yocto new release against CVE needed to be patched and genearte reports. 
+
+
+## First Check for patches of CVE present in latest Release but not in  previous release and list them
+echo "Looking at Yocto Layer..."
+cd ./cve/
+#diff -r old new
+diff -r $1 $2 \
+| grep $2 | awk '{print $4}' \
+| grep CVE \
+| while read -r file; do find ./poky-yocto-2.0.3 -name "$file"; done > ./../Reports/YoctoCVEList.txt
+
+echo "Formatting Reports..."
+cd ./../Reports/
+
+## Format Reported CVE list
+
+#Remove everything before last slash
+sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
+#Remove any Package name attached to CVE number
+sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
+#Now Get only CVE Number and remove .patch keyword at aend of CVE number
+cut -c-13 TempFormattedYoctoCVEList_1.txt > FormattedYoctoCVEList.txt
+
+## format Reported CVE file
+
+#Remove packages names
+sed '/CVE-/!d' reported_cve.txt > TempFormattedReportedCVE.txt
+#Remove any Package name left before CVE (Actually it can happen if two packages have same revision number so it will get deleted during jenkins build and can cause this issue ) 
+sed -n 's/^.*CVE/CVE/p' TempFormattedReportedCVE.txt > FormattedReportedCVE.txt
+
+## Merge Reported CVE form cve-check-tool and Yocto Pathced CVE list
+cat FormattedReportedCVE.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+
+## Remove duplicates from resultant list
+#For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
+cat TempMergedList.txt | sort -n | uniq > MergedList.txt
+cat TempMergedList.txt | sort -n | uniq -d > PatchesForCVEPresentInYoctoLayer.txt
+
+[ -e TempPatchedCve.txt ]
+	rm -r TempPatchedCve.txt
+[ -e TempToBePatchedCve.txt ]
+	rm -r TempToBePatchedCve.txt
+
+## check for CVEs patches not present in current MEL release
+echo -n "Looking at Mel Release for Patches already present..."
+cd ./../cedar_test
+
+while read -r file; do 
+	if [ ! -z "$(grep -r $(sed 's/^.*CVE-/CVE-/' <<<"$file" | head -c 13) ./)" ]; then 
+		sed 's/^.*CVE-/CVE-/' <<<"$file" | head -c 13 >>  ./../Reports/TempPatchedCve.txt
+                echo "" >> ./../Reports/TempPatchedCve.txt
+	else
+		sed 's/^.*CVE-/CVE-/' <<<"$file" | head -c 13 >> ./../Reports/TempToBePatchedCve.txt
+                echo "" >> ./../Reports/TempToBePatchedCve.txt	
+	fi
+	echo -n "."
+done < ./../Reports/MergedList.txt
+echo "Done"
+
+## Generating Reports
+echo "Generating Reports..."
+cd ./../Reports
+uniq -u TempToBePatchedCve.txt > ToBePatchedCve.txt
+uniq -u TempPatchedCve.txt > PatchedCve.txt
+NumberOfCVEToBePatched (){
+wc -l ToBePatchedCve.txt
+}
+echo -n "Number of CVE to be patched are = "
+echo "$(NumberOfCVEToBePatched)"
+PatchesForCVEPresentInYoctoLayer (){
+wc -l PatchesForCVEPresentInYoctoLayer.txt
+}
+echo -n "Patches can be found in Yocto Release = "
+echo "$(PatchesForCVEPresentInYoctoLayer)"
+
+[ ls tmp* 1> /dev/null 2>&1 ]
+	rm -r Temp*
+[ ls Formatted* 1> /dev/null 2>&1 ]
+	rm -r Formatted*
+[ ls Merged* 1> /dev/null 2>&1 ]
+	rm -r Merged*
+
+
