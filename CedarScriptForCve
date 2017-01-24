@@ -7,7 +7,7 @@
 
 ## First list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches
 echo "Looking at Yocto Layer..."
-cd ./cve/
+cd ./PokyReleases/
 #diff -r old new
 diff -r $1 $2 \
 | grep $2 | awk '{print $4}' \
@@ -51,7 +51,7 @@ fi
 
 ## check for CVE patches not present in current MEL release
 echo -n "Looking at Mel Release for already present Patches ..."
-cd ./../cedar_test
+cd ./../CedarMelRelease
 
 while read -r file; do 
 	if [ ! -z "$(grep -r $(sed 's/^.*CVE-/CVE-/' <<<"$file" | head -c 13) ./)" ]; then 
