@@ -1,0 +1,180 @@
+#!/bin/bash
+
+## Author : Naeem Khan
+## Mentor Graphics
+## Script to list CVE to be patched from yocto latest release and cve-check-tool.Remove duplicates and check if Patches are already present in our MEL release.Finally, Check for patches which can be found in Yocto new release against CVE needed to be patched and genearte reports. 
+
+## check for CVE patches present in current MEL release according to Version Number
+echo -e "\n \t \t [ CVE Log Analyser ] \n \n "
+
+#delete old Reports
+if [ -d ./Reports ]; then
+    [ "$(ls -A ./Reports)" ] && rm ./Reports/* || echo "No Old Reports Found"
+else
+    mkdir ./Reports
+fi
+
+echo -n "Looking at Mel Release for already present Patches [ "
+cd MelRelease
+
+if [ -e ./../Logs/TempVersionedPatchedCve.txt ]; then
+	rm -r ./../Logs/TempVersionedPatchedCve.txt
+fi
+
+if [ -e ./../Logs/TempVersionedToBePatchedCve.txt ]; then
+	rm -r ./../Logs/TempVersionedToBePatchedCve.txt
+fi
+
+Counter=0
+Lines=$(wc -l < ./../Logs/reported_cve.txt) 
+while read -r file; do
+	if ( echo "$file" | grep -q ' ' ); then # if line contains spaces it means line has Package name and Version Number 
+		PackageNumber="$(echo "$file")" 
+	else
+		if [ ! -z "$(grep -r "$file" ./ | grep "$PackageNumber")" ]; then ## if searched CVE output has package number then declare patched  
+			echo "$file" >>  ./../Logs/TempVersionedPatchedCve.txt
+		else
+			echo "$file" >> ./../Logs/TempVersionedToBePatchedCve.txt
+		fi
+	fi
+	((Counter=Counter+1))
+	((Temp=($Counter * 100)))	
+	Percentage=$(( $Temp / $Lines ))
+	if [ $Percentage -lt 10 ]; then
+		echo -ne "$Percentage % ]\b\b\b\b\b"
+	else
+		echo -ne "$Percentage % ]\b\b\b\b\b\b"
+	fi	
+done < ./../Logs/reported_cve.txt
+echo -e "\n"
+
+if [ -e ./../Logs/TempVersionedPatchedCve.txt ]; then
+	sort -n ./../Logs/TempVersionedPatchedCve.txt > ./../Logs/VersionedPatchedCve.txt
+	cp ./../Logs/VersionedPatchedCve.txt ./../Reports/
+fi
+
+if [ -e ./../Logs/TempVersionedToBePatchedCve.txt ]; then
+	sort -n ./../Logs/TempVersionedToBePatchedCve.txt > ./../Logs/VersionedToBePatchedCve.txt
+	cp ./../Logs/VersionedToBePatchedCve.txt ./../Reports/
+fi
+
+## First list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches
+echo "Looking at Yocto Layer..."
+cd ./../PokyReleases/
+#diff -r old new
+diff -r $1 $2 \
+| grep $2 | awk '{print $4}' \
+| grep CVE \
+| while read -r file; do find ./"$2" -name "$file"; done > ./../Logs/YoctoCVEList.txt
+
+echo "Formatting Logs..."
+cd ./../Logs/
+
+## Format Yocto CVE list
+
+#Remove everything before last slash
+sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
+#Remove any Package name attached to CVE number
+sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
+#Now Get only CVE Number and remove .patch keyword at aend of CVE number
+cut -c-13 TempFormattedYoctoCVEList_1.txt > TempFormattedYoctoCVEList_2.txt
+#sort
+ sort -n TempFormattedYoctoCVEList_2.txt > FormattedYoctoCVEList.txt
+## Merge Reported CVE to be patched form cve-check-tool and Yocto Pathced CVE list
+if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+	cat ./../Reports/VersionedToBePatchedCve.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+else
+	cat FormattedYoctoCVEList.txt > TempMergedList.txt
+fi
+## Remove duplicates from resultant list
+#For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
+cat TempMergedList.txt | sort -n | uniq > MergedList.txt
+
+## Delete Old logs
+if [ -e TempPatchedCve.txt ]; then
+	rm -r TempPatchedCve.txt
+fi
+
+if [ -e TempToBePatchedCve.txt ]; then
+	rm -r TempToBePatchedCve.txt
+fi
+## check for CVE patches not present in current MEL release
+echo -n "Looking at Mel Release for already present Patches [ "
+cd ./../MelRelease
+Counter=0
+Lines=$(wc -l < ./../Logs/MergedList.txt) 
+while read -r file; do 
+	if [ ! -z "$(grep -r "$file" ./)" ]; then 
+		echo "$file" >>  ./../Logs/TempPatchedCve.txt
+	else
+		echo "$file" >> ./../Logs/TempToBePatchedCve.txt	
+	fi
+	((Counter=Counter+1))
+	((Temp=($Counter * 100)))	
+	Percentage=$(( $Temp / $Lines ))
+	if [ $Percentage -lt 10 ]; then
+		echo -ne "$Percentage % ]\b\b\b\b\b"
+	else
+		echo -ne "$Percentage % ]\b\b\b\b\b\b"
+	fi	
+done < ./../Logs/MergedList.txt
+echo -e "\n"
+
+## Generating Reports
+echo "Generating Reports..."
+cd ./../Reports
+if [ -e ./../Logs/TempToBePatchedCve.txt ]; then
+	uniq -u ./../Logs/TempToBePatchedCve.txt > ToBePatchedCve.txt
+fi
+
+if [ -e ./../Logs/TempPatchedCve.txt ]; then
+	uniq -u ./../Logs/TempPatchedCve.txt > PatchedCve.txt
+fi
+
+if [[ -e ./../Logs/FormattedYoctoCVEList.txt && -e ./../Reports/VersionedToBePatchedCve.txt ]]; then
+	grep -f ./../Logs/FormattedYoctoCVEList.txt ./../Reports/VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInYoctoLayer.txt
+	PatchesForCVEPresentInYoctoLayer (){
+	wc -l < PatchesForCVEPresentInYoctoLayer.txt
+	}
+	echo -n "Patches can be found in Yocto Release = "
+	echo "$(PatchesForCVEPresentInYoctoLayer)"
+fi
+
+if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+	NumberOfCVEToBePatched (){
+	sort -n ./../Reports/VersionedToBePatchedCve.txt | uniq | wc -l
+	}
+	echo -n "Number of CVE to be patched are = "
+	echo "$(NumberOfCVEToBePatched)"
+else
+	echo "Number of CVE to be patched are = 0"
+fi
+
+if [[ -e PatchedCve.txt && -e ./../Reports/VersionedToBePatchedCve.txt ]]; then
+	grep -f PatchedCve.txt ./../Reports/VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInMelRelease.txt
+	NumberOfPatchesInMelRelease (){
+	wc -l < PatchesForCVEPresentInMelRelease.txt
+	}
+	echo -n "Patches can be found in Mel Release = "
+	echo "$(NumberOfPatchesInMelRelease)"
+fi
+
+if [[ -e ToBePatchedCve.txt && -e ./../Logs/FormattedYoctoCVEList.txt ]]; then
+	grep -f ./../Logs/FormattedYoctoCVEList.txt ToBePatchedCve.txt > PatchesToBeMovedFromYocto.txt
+	NumberOfPatchesToBeMovedFromYocto (){
+	wc -l < PatchesToBeMovedFromYocto.txt
+	}
+	echo -n "Patches to be moved from Yocto = "
+	echo "$(NumberOfPatchesToBeMovedFromYocto)"
+fi
+
+
+cd ./../Logs
+#[ ls tmp* 1> /dev/null 2>&1 ]
+#	rm -r Temp*
+#[ ls Formatted* 1> /dev/null 2>&1 ]
+#	rm -r Formatted*
+#[ ls Merged* 1> /dev/null 2>&1 ]
+#	rm -r Merged*
+
+
