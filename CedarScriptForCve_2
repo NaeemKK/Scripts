@@ -4,7 +4,6 @@
 ## Mentor Graphics
 ## Script to list CVE to be patched from yocto latest release and cve-check-tool.Remove duplicates and check if Patches are already present in our MEL release.Finally, Check for patches which can be found in Yocto new release against CVE needed to be patched and genearte reports. 
 
-## check for CVE patches present in current MEL release according to Version Number
 echo -e "\n \t \t [ CVE Log Analyser ] \n \n "
 
 #delete old Reports
@@ -13,17 +12,18 @@ if [ -d ./Reports ]; then
 else
     mkdir ./Reports
 fi
-
+#delete old Logs
+if [ -d ./Logs ]; then
+    rm ./Logs/*
+else
+    mkdir ./Logs
+fi
+#Copy CVE logs to Logs folder
+cp reported_cve.txt ./Logs
+cp YoctoCVEList.txt ./Logs
+## check for CVE patches present in current MEL release according to Version Number
 echo -n "Looking at Mel Release for already present Patches [ "
 cd MelRelease
-
-if [ -e ./../Logs/TempVersionedPatchedCve.txt ]; then
-	rm -r ./../Logs/TempVersionedPatchedCve.txt
-fi
-
-if [ -e ./../Logs/TempVersionedToBePatchedCve.txt ]; then
-	rm -r ./../Logs/TempVersionedToBePatchedCve.txt
-fi
 
 Counter=0
 Lines=$(wc -l < ./../Logs/reported_cve.txt) 
