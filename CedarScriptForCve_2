@@ -110,9 +110,10 @@ if [ -e TempToBePatchedCve.txt ]; then
 fi
 
 ## check for CVE patches not present in current MEL release
-echo -n "Looking at Mel Release for already present Patches [ "
+
 cd ./../MelRelease
 if [ -e ../Logs/MergedList.txt ]; then
+	echo -n "Looking at Mel Release for already present Patches [ "
 	Counter=0
 	Lines=$(wc -l < ./../Logs/MergedList.txt) 
 	while read -r file; do 
