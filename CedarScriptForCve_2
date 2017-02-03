@@ -58,37 +58,46 @@ if [ -e ./../Logs/TempVersionedToBePatchedCve.txt ]; then
 	cp ./../Logs/VersionedToBePatchedCve.txt ./../Reports/
 fi
 
-## First list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches
-echo "Looking at Yocto Layer..."
-cd ./../PokyReleases/
-#diff -r old new
-diff -r $1 $2 \
-| grep $2 | awk '{print $4}' \
-| grep CVE \
-| while read -r file; do find ./"$2" -name "$file"; done > ./../Logs/YoctoCVEList.txt
+## Check User Command arguments,if asked then list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches else just rename
+## "cat ./../Reports/VersionedToBePatchedCve.txt" for further script comaptibilty
+if [[ $1 -ne "" && $2 -ne "" ]]; then 
 
-echo "Formatting Logs..."
-cd ./../Logs/
+	echo "Looking at Yocto Layer..."
+	cd ./../PokyReleases/
+	#diff -r old new
+	diff -r $1 $2 \
+	| grep $2 | awk '{print $4}' \
+	| grep CVE \
+	| while read -r file; do find ./"$2" -name "$file"; done > ./../Logs/YoctoCVEList.txt
 
-## Format Yocto CVE list
+	echo "Formatting Logs..."
+	cd ./../Logs/
 
-#Remove everything before last slash
-sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
-#Remove any Package name attached to CVE number
-sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
-#Now Get only CVE Number and remove .patch keyword at aend of CVE number
-cut -c-13 TempFormattedYoctoCVEList_1.txt > TempFormattedYoctoCVEList_2.txt
-#sort
- sort -n TempFormattedYoctoCVEList_2.txt > FormattedYoctoCVEList.txt
-## Merge Reported CVE to be patched form cve-check-tool and Yocto Pathced CVE list
-if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
-	cat ./../Reports/VersionedToBePatchedCve.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+	## Format Yocto CVE list
+
+	#Remove everything before last slash
+	sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
+	#Remove any Package name attached to CVE number
+	sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
+	#Now Get only CVE Number and remove .patch keyword at aend of CVE number
+	cut -c-13 TempFormattedYoctoCVEList_1.txt > TempFormattedYoctoCVEList_2.txt
+	#sort
+	sort -n TempFormattedYoctoCVEList_2.txt > FormattedYoctoCVEList.txt
+	## Merge Reported CVE to be patched form cve-check-tool and Yocto Pathced CVE list
+	if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+		cat ./../Reports/VersionedToBePatchedCve.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+	else
+		cat FormattedYoctoCVEList.txt > TempMergedList.txt
+	fi
 else
-	cat FormattedYoctoCVEList.txt > TempMergedList.txt
+	echo "No Yocto Layer to be seen"
+	if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+		cat ./../Reports/VersionedToBePatchedCve.txt > ../Logs/TempMergedList.txt
+	fi
 fi
 ## Remove duplicates from resultant list
 #For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
-cat TempMergedList.txt | sort -n | uniq > MergedList.txt
+cat ../Logs/TempMergedList.txt | sort -n | uniq > ../Logs/MergedList.txt
 
 ## Delete Old logs
 if [ -e TempPatchedCve.txt ]; then
