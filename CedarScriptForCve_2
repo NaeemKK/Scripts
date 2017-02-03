@@ -97,8 +97,9 @@ else
 fi
 ## Remove duplicates from resultant list
 #For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
-cat ../Logs/TempMergedList.txt | sort -n | uniq > ../Logs/MergedList.txt
-
+if [ -e ../Logs/TempMergedList.txt ]; then
+	cat ../Logs/TempMergedList.txt | sort -n | uniq > ../Logs/MergedList.txt
+fi
 ## Delete Old logs
 if [ -e TempPatchedCve.txt ]; then
 	rm -r TempPatchedCve.txt
@@ -107,27 +108,30 @@ fi
 if [ -e TempToBePatchedCve.txt ]; then
 	rm -r TempToBePatchedCve.txt
 fi
+
 ## check for CVE patches not present in current MEL release
 echo -n "Looking at Mel Release for already present Patches [ "
 cd ./../MelRelease
-Counter=0
-Lines=$(wc -l < ./../Logs/MergedList.txt) 
-while read -r file; do 
-	if [ ! -z "$(grep -r "$file" ./)" ]; then 
-		echo "$file" >>  ./../Logs/TempPatchedCve.txt
-	else
-		echo "$file" >> ./../Logs/TempToBePatchedCve.txt	
-	fi
-	((Counter=Counter+1))
-	((Temp=($Counter * 100)))	
-	Percentage=$(( $Temp / $Lines ))
-	if [ $Percentage -lt 10 ]; then
-		echo -ne "$Percentage % ]\b\b\b\b\b"
-	else
-		echo -ne "$Percentage % ]\b\b\b\b\b\b"
-	fi	
-done < ./../Logs/MergedList.txt
-echo -e "\n"
+if [ -e ../Logs/MergedList.txt ]; then
+	Counter=0
+	Lines=$(wc -l < ./../Logs/MergedList.txt) 
+	while read -r file; do 
+		if [ ! -z "$(grep -r "$file" ./)" ]; then 
+			echo "$file" >>  ./../Logs/TempPatchedCve.txt
+		else
+			echo "$file" >> ./../Logs/TempToBePatchedCve.txt	
+		fi
+		((Counter=Counter+1))
+		((Temp=($Counter * 100)))	
+		Percentage=$(( $Temp / $Lines ))
+		if [ $Percentage -lt 10 ]; then
+			echo -ne "$Percentage % ]\b\b\b\b\b"
+		else
+			echo -ne "$Percentage % ]\b\b\b\b\b\b"
+		fi	
+	done < ./../Logs/MergedList.txt
+	echo -e "\n"
+fi
 
 ## Generating Reports
 echo "Generating Reports..."
