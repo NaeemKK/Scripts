@@ -13,7 +13,7 @@ if [ -a CVEFile.txt ]; then
 fi
 
 # Get all files with name isafw_cvelog | get lines with CVE- | remove pkg info: | sort | remove duplicate lines (if any) | Get everything on a line| Remove all Comma(s) | Remove repititions and write to file CVEFile.txt
-cat isafw_cvelog* | grep CVE- | awk '{gsub("pkg info: ", "");print}' | sort | uniq | tr -s '\n' ' ' | tr -s ',' ' ' | awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' > CVEFile.txt
+cat isafw_cvelog* | grep CVE- | awk '{gsub("pkg info: ", "");print}' | sort | uniq | tr -s ',' ' ' > CVEFile.txt
 
 #Get one liner log in a varibale
 CVE_LOG=`cat CVEFile.txt`
