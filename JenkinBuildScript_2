@@ -1,19 +1,20 @@
 #!/bin/bash
+################################################# Version 2 #####################
 # Script to create cumulative logs of all CVE for a release
 # Author : Naeem Khan
 # Mentor Graphics Corporation
 
 #Delete previous Log data
-if [ -a cve_data.txt ]; then
-	rm cve_data.txt
+if [ -e reported_cve.txt ]; then
+	rm reported_cve.txt
 fi
 
-if [ -a CVEFile.txt ]; then
+if [ -e CVEFile.txt ]; then
         rm CVEFile.txt
 fi
 
-# Get all files with name isafw_cvelog | get lines with CVE- | remove pkg info: | sort | remove duplicate lines (if any) | Remove all Comma(s) and write to file CVEFile.txt
-cat isafw_cvelog* | grep CVE- | awk '{gsub("pkg info: ", "");print}' | sort | uniq | tr -s ',' ' ' > CVEFile.txt
+# Get all files with name isafw_cvelog | get lines with CVE- | remove pkg info: | sort | remove duplicate lines (if any) | Remove all Comma(s)
+cat cve_accumulated.log | grep CVE- | awk '{gsub("pkg info: ", "");print}' | sort | uniq | tr -s ',' ' ' > CVEFile.txt
 
 #Get one liner log in a varibale
 CVE_LOG=`cat CVEFile.txt`
@@ -23,10 +24,10 @@ echo "$CVE_LOG"
 #Format the log 
 for word in $CVE_LOG; do
         if [[ ${word:0:1} == [[:lower:]] ]] ; then
-		echo -n "$word " >> cve_data.txt
+		echo -n "$word " >> reported_cve.txt
 	elif [[ ${word:0:1} == [:digit:] ]] ; then
-		echo "$word"  >> cve_data.txt
+		echo "$word"  >> reported_cve.txt
 	else
-		echo "$word"  >> cve_data.txt
+		echo "$word"  >> reported_cve.txt
 	fi
 done
