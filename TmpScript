@@ -1,0 +1,16 @@
+#!/bin/sh
+# get the test between tags of html file
+sed 's/<[^>]*>//g' cve%.html > TmpFileWithoutTags
+# Remove all text before first CVE- keyword i.e. first CVE reported 
+sed '/CVE-/,$!d' TmpFileWithoutTags > TmpFileHeaderRemoved
+# set all empty lines with ">" and then uniq to remove consecutive repition of ">" 
+awk '!NF{$0=">"}1' TmpFileHeaderRemoved | uniq > TmpFileWithoutEmptyLines
+# write "<" in new line next to ">".They will be used as starting and ending mark for a CVE information
+sed 's/> \?/>\n</g' TmpFileWithoutEmptyLines > TmpFileWithMarks
+# write "<" at start of file which will be missing
+sed -i '1i<' TmpFileWithMarks
+# Now remove CVE info conatainig either Patched tag or Android Tag
+awk '/</{rec=""; f=1} f{rec = rec $0 ORS} />/{ if (f && (rec !~ "Patched" && rec !~ "Android") ) printf "%s",rec; f=0}' TmpFileWithMarks > Valid_CVE_reported.txt
+rm -f TmpFile*
+
+##https://nvd.nist.gov/vuln/detail/
