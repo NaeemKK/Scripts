@@ -1,5 +1,5 @@
 #!/bin/bash
-################################################# Version 8 ############################
+################################################# Version 10 ############################
 ## Author : Naeem Khan
 ## Mentor Graphics
 ## Script to list CVE to be patched from yocto latest release and cve-check-tool.Remove duplicates and check if Patches are already present in our MEL release.Finally, Check for patches which can be found in Yocto new release against CVE needed to be patched and genearte reports. 

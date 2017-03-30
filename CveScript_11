@@ -1,0 +1,429 @@
+#!/bin/bash
+################################################# Version 11 ############################
+## Author : Naeem Khan
+## Mentor Graphics
+## Script to list CVE to be patched from yocto latest release and cve-check-tool.Remove duplicates and check if Patches are already present in our MEL release.Finally, Check for patches which can be found in Yocto new release against CVE needed to be patched and genearte reports. 
+
+README_INDIVIDUAL_FIRST_HALF="------------------------------------------------------------------------------
+MGC ISSUE ID
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+DESCRIPTION
+------------------------------------------------------------------------------
+Fixed:"
+README_INDIVIDUAL_SECOND_HALF="------------------------------------------------------------------------------
+RESOLUTION
+------------------------------------------------------------------------------
+Added CVE patch
+------------------------------------------------------------------------------
+DEPENDENCIES
+------------------------------------------------------------------------------
+None
+
+------------------------------------------------------------------------------
+LICENSE
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+TEST SUMMARY
+------------------------------------------------------------------------------
+The CVE fix patch applied and build completed successfully. 
+
+------------------------------------------------------------------------------
+KNOWN LIMITATIONS
+------------------------------------------------------------------------------
+None
+"
+
+echo -e "\n \t \t [ CVE Log Analyser ] \n \n "
+
+if [ "$1" == "-h" ] || [ "$1" == "" ]; then
+	echo -e "[ HELP ] \n"
+	echo -e "<*>  -r : \n	For creating ReadME files\n"
+	echo "<*>  <Release Name Present in Current Working Directory> : "
+	echo "	It shall search for CVE in provided directory name, " 
+	echo -e "	should be placed in 'Releases' directory.\n"
+	echo "<*>  <Folder_Name_1> <Folder_Name_2> :"
+	echo "	If two folder names are provide,It would be treated as   "
+	echo "	if need to check for CVE Patches present in 'Folder_Name_2'  "
+	echo "	but not in 'Folder_Name_1'.These two folders must be " 
+	echo -e "	'PokyReleases' named directory.\n"
+	echo "<*>  -a :	"  
+	echo "	Just Analyse Current Mel Release.It shall look into the 'MelRelease' "
+	echo -e "	directory for CVE Patches, listed in 'reported_cve.txt'.\n"	
+elif [ "$1" == "-r" ]; then
+	echo -e "\n Do you really want to create README files for packages?"
+	while read -n1 -r -p " choose [y]es|[n]o "; do
+		case $REPLY in
+			y) break;;
+			n) echo " "; break;;
+			*) echo "	What?";;
+		esac
+	done
+	if [ $REPLY == "y" ]; then 
+		echo -e "\n Creating README Files"
+		FileName="README."
+		CurrentPackageName=""
+		PreviousPackageName=""
+		CurrentBSPName=""
+		PreviousBSPName=""
+		CVENumber=""
+		CVEString=""
+		URLString="* https://nvd.nist.gov/vuln/detail/"
+		CheckForBSPString="recipes-"
+		# find all patches in update directory 
+		find -name *.patch > PatchedPackagesInfo.txt
+		# now loop over each line and do the needful as explained below
+		while read -r line; do
+			CurrentPackageName="$(echo $line | awk -F-fix '{print $1}' | sed 's:.*/::')" ## get Package name
+			CurrentBSPName="$(echo $line | awk -F[//] '{print $2}')" ## get the first word of line.It shall be either BSP folder name or "resipes-..." string
+		## Now check if either package name or the BSP/recipes-* word differs, it means time to write info to the file because some new package is to be processed
+			if [ "$CurrentPackageName" != "$PreviousPackageName" ] || [ "$CurrentBSPName" != "$PreviousBSPName" ]; then
+				if [ ! -z "$CVEString" ]; then ## if that string is empty, it means we entred in the loop for the first time
+					if echo "$PreviousBSPName" | grep -q "$CheckForBSPString" ## check either BSP string contains the BSP name or "recipe-" word
+					then
+						FileName=$FileName$PreviousPackageName ## if BSp string conatins the "recipes-" word then it means package is not specific to some BSP so write README.<packageName>
+					else
+						FileName=$FileName$PreviousBSPName"_"$PreviousPackageName ## if contains BSP name, then its for specific BSP so append the name of BSP
+					fi
+					## write info to the file			
+					echo "$README_INDIVIDUAL_FIRST_HALF" > $FileName
+					echo "$CVEString" >> $FileName
+					echo "$README_INDIVIDUAL_SECOND_HALF" >> $FileName	
+					PreviousPackageName=$CurrentPackageName
+					PreviousBSPName=$CurrentBSPName
+					CVEString=""
+					FileName="README."
+				fi
+			fi
+			CVENumber="$(echo $line | awk -F.patch '{print $1}' | cut -f1 -d"_" | awk '{print $NF}' FS=fix-)" ## get the CVE number
+			echo $CVENumber
+			CVEString=$CVEString$CVENumber'\n' ## append CVE number
+			CVEString=$CVEString$URLString$CVENumber'\n' ## write URL in new line
+		done < PatchedPackagesInfo.txt 	
+	fi
+else
+	#delete old Reports
+	if [ -d ./Reports ]; then
+	    [ "$(ls -A ./Reports)" ] && rm ./Reports/* || echo "No Old Reports Found"
+	else
+	    mkdir ./Reports
+	fi
+	#delete old Logs
+	if [ -d ./Logs ]; then
+	    [ "$(ls -A ./Logs)" ] && rm ./Logs/* || echo "No Old Logs Found"
+	else
+	    mkdir ./Logs
+	fi
+	#Copy CVE logs to Logs folder
+	if [ -e reported_cve.txt ]; then
+		cp reported_cve.txt ./Logs
+	else
+		echo "No CVE Log found" && exit
+	fi
+	if [ -e cve*.html ]; then
+		cp cve*.html ./Logs
+	else
+		echo "No CVE html format Log found" && exit
+	fi
+	if [ -e YoctoCVEList.txt ]; then 
+		cp YoctoCVEList.txt ./Logs
+	fi
+
+	##Refine html file
+	cd Logs
+	if [ -e cve*.html ]; then
+		echo "Filter Html file."
+		# get the test between tags of html file
+		sed 's/<[^>]*>//g' cve*.html > TmpFileWithoutTags
+		# Remove all text before first CVE- keyword i.e. first CVE reported 
+		sed '/CVE-/,$!d' TmpFileWithoutTags > TmpFileHeaderRemoved
+		# set all empty lines with ">" and then uniq to remove consecutive repition of ">" 
+		awk '!NF{$0=">"}1' TmpFileHeaderRemoved | uniq > TmpFileWithoutEmptyLines
+		# write "<" in new line next to ">".They will be used as starting and ending mark for a CVE information
+		sed 's/> \?/>\n</g' TmpFileWithoutEmptyLines > TmpFileWithMarks
+		# write "<" at start of file which will be missing
+		sed -i '1i<' TmpFileWithMarks
+		# Now remove CVE info conatainig either Patched tag or Android Tag
+		awk '/</{rec=""; f=1} f{rec = rec $0 ORS} />/{ if (f && (rec !~ "Patched" && rec !~ "Android") ) printf "%s",rec; f=0}' TmpFileWithMarks > Valid_CVE_reported.txt
+		rm -f TmpFile*
+		cd ..
+	fi
+	## check for CVE patches present in current MEL release according to Version Number
+	echo -n "Looking at Mel Release for Versioned Patched CVE [ "
+	cd MelRelease
+
+	Counter=0
+	Lines=$(wc -l < ./../Logs/reported_cve.txt) 
+	while read -r file; do
+		if ( echo "$file" | grep -q ' ' ); then # if line contains spaces it means line has Package name and Version Number 
+			PackageNameNumber="$(echo "$file")"
+		elif [ "$file" == "0" ]; then
+			(Counter=Counter)
+		elif [ ! -z "$(grep -r "$file" ./../Logs/Valid_CVE_reported.txt)" ]; then #check if that CVE entry is present in refined html file
+			SearchedOutput="$(grep -r "$file" ./)" 
+			if [ ! -z "$(echo $SearchedOutput | grep "$PackageNameNumber")" ]; then ## if searched CVE output has package number then declare patched  
+				echo "$file" >>  ./../Logs/TempVersionedPatchedCve.txt
+			else
+				echo "$file" >> ./../Logs/TempVersionedToBePatchedCve.txt
+				echo -n "$PackageNameNumber" >> ../Logs/TmpCveWithPackageName.txt 
+				echo -n " --> " >> ../Logs/TmpCveWithPackageName.txt               
+				echo "$file" >> ../Logs/TmpCveWithPackageName.txt 	
+			fi
+
+			if [ ! -z "$(echo $SearchedOutput | grep "updates/update-mel-")" ]; then
+				echo "$file" >>  ./../Logs/PatchedInUpdate.txt
+			elif [ ! -z "$(echo $SearchedOutput)" ]; then
+				echo "$file" >>  ./../Logs/PatchedInOtherLayers.txt
+			fi
+		fi
+		((Counter=Counter+1))
+		((Temp=($Counter * 100)))	
+		Percentage=$(( $Temp / $Lines ))
+		if [ $Percentage -lt 10 ]; then
+			echo -ne "$Percentage % ]\b\b\b\b\b"
+		else
+			echo -ne "$Percentage % ]\b\b\b\b\b\b"
+		fi	
+	done < ./../Logs/reported_cve.txt
+	echo -e "\n"
+
+	## Format Generated Logs
+	if [ -e ./../Logs/TmpCveWithPackageName.txt ]; then
+		sort ./../Logs/TmpCveWithPackageName.txt | uniq > ./../Logs/CveWithPackageName.txt
+	fi
+
+	if [ -e ./../Logs/TempVersionedPatchedCve.txt ]; then
+		sort -n ./../Logs/TempVersionedPatchedCve.txt | uniq > ./../Logs/VersionedPatchedCve.txt
+		cp ./../Logs/VersionedPatchedCve.txt ./../Reports/
+	fi
+
+	if [ -e ./../Logs/PatchedInUpdate.txt ]; then
+		sort -n ./../Logs/PatchedInUpdate.txt | uniq > ./../Reports/PatchedInUpdate.txt
+	fi
+
+	if [ -e ./../Logs/PatchedInOtherLayers.txt ]; then
+		sort -n ./../Logs/PatchedInOtherLayers.txt | uniq > ./../Reports/PatchedInOtherLayers.txt
+	fi
+
+	if [ -e ./../Logs/TempVersionedToBePatchedCve.txt ]; then
+		sort -n ./../Logs/TempVersionedToBePatchedCve.txt | uniq > ./../Logs/VersionedToBePatchedCve.txt
+		cp ./../Logs/VersionedToBePatchedCve.txt ./../Reports/
+	fi
+
+	## Check User Command arguments,if asked then list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches else just rename
+	## "cat ./../Reports/VersionedToBePatchedCve.txt" for further script comaptibilty
+	if [ "$#" -eq  "2" ]; then  
+		echo "Looking at Yocto Layer..."
+		cd ./../PokyReleases/
+		#diff -r old new
+		diff -r $1 $2 \
+		| grep $2 | awk '{print $4}' \
+		| grep CVE \
+		| while read -r file; do find ./"$2" -name "$file"; done > ./../Logs/YoctoCVEList.txt
+
+		echo "Formatting Logs..."
+		cd ./../Logs/
+
+		## Format Yocto CVE list
+
+		#Remove everything before last slash
+		sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
+		#Remove any Package name attached to CVE number
+		sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
+		#Now Get only CVE Number and remove .patch keyword at aend of CVE number
+		cut -c-13 TempFormattedYoctoCVEList_1.txt > TempFormattedYoctoCVEList_2.txt
+		#sort
+		sort -n TempFormattedYoctoCVEList_2.txt > FormattedYoctoCVEList.txt
+		## Merge Reported CVE to be patched form cve-check-tool and Yocto Pathced CVE list
+		if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+			cat ./../Reports/VersionedToBePatchedCve.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+		else
+			cat FormattedYoctoCVEList.txt > TempMergedList.txt
+		fi
+	else
+		echo "No Yocto Layer to be seen for moving patched CVE"
+		if [ -e ./../Reports/VersionedToBePatchedCve.txt ]; then
+			cat ./../Reports/VersionedToBePatchedCve.txt > ../Logs/TempMergedList.txt
+		fi
+	fi
+
+	## look at poky layer for patches of reported CVE against MelRelease.It shall be checked if 
+	## user provided only one release of poky.2 releases are considered to be thge work for abu.
+	if [ "$#" -eq  "1" ]; then 
+		cd ./../Releases/"$1"
+		if [ -e ./../../Logs/VersionedToBePatchedCve.txt ]; then
+			echo -n "Looking at Provided Release for already present Patches [ "
+			Counter=0
+			Lines=$(wc -l < ./../../Logs/VersionedToBePatchedCve.txt) 
+			while read -r file; do 
+				if [ ! -z "$(grep -r "$file" ./)" ]; then 
+					echo "$file" >> ./../../Logs/ReleaseTempPatches.txt	
+				fi
+				((Counter=Counter+1))
+				((Temp=($Counter * 100)))	
+				Percentage=$(( $Temp / $Lines ))
+				if [ $Percentage -lt 10 ]; then
+					echo -ne "$Percentage % ]\b\b\b\b\b"
+				else
+					echo -ne "$Percentage % ]\b\b\b\b\b\b"
+				fi	
+			done < ./../../Logs/VersionedToBePatchedCve.txt
+			echo -e "\n"
+			cp ./../../Logs/ReleaseTempPatches.txt ./../../Reports/ReleasePatches.txt
+		fi
+		cd ./../	
+	fi
+
+	## Remove duplicates from resultant list
+	##For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | 
+	##awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
+	cd ./../Logs/
+	if [ -e TempMergedList.txt ]; then
+		cat TempMergedList.txt | sort -n | uniq > MergedList.txt
+	fi
+
+	## Delete Old logs
+	if [ -e TempPatchedCve.txt ]; then
+		rm -r TempPatchedCve.txt
+	fi
+
+	if [ -e TempToBePatchedCve.txt ]; then
+		rm -r TempToBePatchedCve.txt
+	fi
+
+	## check for CVE patches not present in current MEL release
+	cd ./../MelRelease
+	if [ -e ../Logs/MergedList.txt ]; then
+		echo -n "Looking at Mel Release for Non-Versioned Patched CVE [ "
+		Counter=0
+		Lines=$(wc -l < ./../Logs/MergedList.txt) 
+		while read -r file; do 
+			if [ ! -z "$(grep -r "$file" ./)" ]; then 
+				echo "$file" >>  ./../Logs/TempPatchedCve.txt
+			else
+				echo "$file" >> ./../Logs/TempToBePatchedCve.txt	
+			fi
+			((Counter=Counter+1))
+			((Temp=($Counter * 100)))	
+			Percentage=$(( $Temp / $Lines ))
+			if [ $Percentage -lt 10 ]; then
+				echo -ne "$Percentage % ]\b\b\b\b\b"
+			else
+				echo -ne "$Percentage % ]\b\b\b\b\b\b"
+			fi	
+		done < ./../Logs/MergedList.txt
+		echo -e "\n"
+	fi
+
+	## Generating Reports
+	echo "Generating Reports..."
+	cd ./../Reports
+
+	if [ -e ./../Logs/TempToBePatchedCve.txt ]; then
+		uniq -u ./../Logs/TempToBePatchedCve.txt > ToBePatchedCve.txt
+	fi
+
+	if [ -e ./../Logs/TempPatchedCve.txt ]; then
+		uniq -u ./../Logs/TempPatchedCve.txt > PatchedCve.txt
+	fi
+
+	if [[ -e ./../Logs/FormattedYoctoCVEList.txt && -e VersionedToBePatchedCve.txt ]]; then
+		grep -f ./../Logs/FormattedYoctoCVEList.txt VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInYoctoLayer.txt
+		PatchesForCVEPresentInYoctoLayer (){
+		wc -l < PatchesForCVEPresentInYoctoLayer.txt
+		}
+		echo -n "Patches can be found in Yocto Release = "
+		echo "$(PatchesForCVEPresentInYoctoLayer)"
+		if [ -e ./../Logs/CveWithPackageName.txt ]; then
+			while read -r file; do
+				SearchedOutput="$(grep $file ./../Logs/CveWithPackageName.txt)"
+				if [ ! -z "$SearchedOutput" ]; then			
+					echo "$SearchedOutput" >> TmpPatchesForCVEPresentInYoctoLayer.txt
+				else
+					echo $file >> TmpPatchesForCVEPresentInYoctoLayer.txt
+				fi
+			done < PatchesForCVEPresentInYoctoLayer.txt
+			sort TmpPatchesForCVEPresentInYoctoLayer.txt > PatchesForCVEPresentInYoctoLayer.txt
+			rm TmpPatchesForCVEPresentInYoctoLayer.txt	
+		fi
+	fi
+
+	if [ -e VersionedToBePatchedCve.txt ]; then
+		NumberOfCVEToBePatched (){
+		wc -l < VersionedToBePatchedCve.txt 
+		}
+		echo -n "Number of CVE to be patched are = "
+		echo "$(NumberOfCVEToBePatched)"
+	else
+		echo "Number of CVE to be patched are = 0"
+	fi
+
+	if [[ -e PatchedCve.txt && -e VersionedToBePatchedCve.txt ]]; then
+	#	grep -f PatchedCve.txt VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInMelRelease.txt
+		NumberOfPatchesInMelRelease (){
+		wc -l < PatchedCve.txt
+		}
+		echo -n "Patches can be found in Mel Release = "
+		echo "$(NumberOfPatchesInMelRelease)"
+	fi
+
+	if [[ -e ToBePatchedCve.txt && -e ./../Logs/FormattedYoctoCVEList.txt ]]; then
+		grep -f ./../Logs/FormattedYoctoCVEList.txt ToBePatchedCve.txt > PatchesToBeMovedFromYocto.txt
+		NumberOfPatchesToBeMovedFromYocto (){
+		wc -l < PatchesToBeMovedFromYocto.txt
+		}
+		echo -n "Patches to be moved from Yocto = "
+		echo "$(NumberOfPatchesToBeMovedFromYocto)"
+		if [ -e ./../Logs/CveWithPackageName.txt ]; then
+			while read -r file; do
+				SearchedOutput="$(grep $file ./../Logs/CveWithPackageName.txt)"
+				if [ ! -z "$SearchedOutput" ]; then			
+					echo "$SearchedOutput" >> TmpPatchesToBeMovedFromYocto.txt
+				else
+					echo $file >> TmpPatchesToBeMovedFromYocto.txt
+				fi
+			done < PatchesToBeMovedFromYocto.txt
+			sort TmpPatchesToBeMovedFromYocto.txt > PatchesToBeMovedFromYocto.txt
+			rm TmpPatchesToBeMovedFromYocto.txt
+		fi	
+	fi
+
+	if [[ -e ReleasePatches.txt && -e VersionedToBePatchedCve.txt && -e PatchedCve.txt ]]; then
+		grep -v -f <(sort PatchedCve.txt) <(sort VersionedToBePatchedCve.txt) | uniq > ./../Logs/Temp.txt
+		grep -f <(sort ReleasePatches.txt) ./../Logs/Temp.txt > PatchesForCVEPresentInProvidedRelease.txt
+		NumberOfPatchesInprovidedRelease (){
+		wc -l < PatchesForCVEPresentInProvidedRelease.txt
+		}
+		echo -n "Patches can be found in Provided Release = "
+		echo "$(NumberOfPatchesInprovidedRelease)"
+		if [ -e ./../Logs/CveWithPackageName.txt ]; then
+			while read -r file; do
+		                SearchedOutput="$(grep $file ./../Logs/CveWithPackageName.txt)"
+				if [ ! -z "$SearchedOutput" ]; then			
+					echo "$SearchedOutput" >> TmpPatchesForCVEPresentInProvidedRelease.txt
+				else
+					echo $file >> TmpPatchesForCVEPresentInProvidedRelease.txt
+				fi	
+			done < PatchesForCVEPresentInProvidedRelease.txt
+			sort TmpPatchesForCVEPresentInProvidedRelease.txt > PatchesForCVEPresentInProvidedRelease.txt
+			rm TmpPatchesForCVEPresentInProvidedRelease.txt
+		fi	
+	fi
+	if [ -e ./../Logs/CveWithPackageName.txt ]; then
+		#list CVE with pacakge name
+		while read -r file; do
+			grep $file ./../Logs/CveWithPackageName.txt >> TmpPatchedInOtherLayers.txt
+		done < PatchedInOtherLayers.txt
+		sort TmpPatchedInOtherLayers.txt > PatchedInOtherLayers.txt
+		rm TmpPatchedInOtherLayers.txt
+	
+		while read -r file; do
+			grep $file ./../Logs/CveWithPackageName.txt >> TmpPatchedInUpdate.txt
+		done < PatchedInUpdate.txt
+		sort TmpPatchedInUpdate.txt > PatchedInUpdate.txt
+		rm TmpPatchedInUpdate.txt
+		mv ./../Logs/CveWithPackageName.txt VersionedToBePatchedCve.txt
+	fi
+fi
