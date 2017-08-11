@@ -1,0 +1,853 @@
+#!/bin/bash
+################################################# Version 22 ############################
+## Author : Naeem Khan
+## Mentor Graphics
+
+
+#set -x
+
+### ToDo: make functions for more clarity 
+
+FILE_STATUS=0
+NORMAL_RELEASE_DIR="MelRelease"
+POKY_RELEASE_DIR="PokyReleases"
+RELEASES_DIR="Releases"
+REPORTS_DIR="Reports"
+LOGS_DIR="Logs"
+CUMULATIVE_README_NAME="README-mel-cumulative.txt"
+README_INDIVIDUAL_FIRST_HALF="------------------------------------------------------------------------------
+MGC ISSUE ID
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+DESCRIPTION
+------------------------------------------------------------------------------
+Fixed:"
+README_INDIVIDUAL_SECOND_HALF="------------------------------------------------------------------------------
+RESOLUTION
+------------------------------------------------------------------------------
+Added CVE patch
+------------------------------------------------------------------------------
+DEPENDENCIES
+------------------------------------------------------------------------------
+None
+
+------------------------------------------------------------------------------
+LICENSE
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+TEST SUMMARY
+------------------------------------------------------------------------------
+The CVE fix patch applied and build completed successfully. 
+
+------------------------------------------------------------------------------
+KNOWN LIMITATIONS
+------------------------------------------------------------------------------
+None
+"
+
+CommitMessageTemplate_Patch=": Patched the reported CVE
+<remove me>
+Following are the CVE
+" 
+CommitMessageTemplate_ReadME=": Creation of README containing information about patched CVE.
+<remove me>
+" 
+
+function CreateReadme_s
+{
+	local CreateReadME=$1
+	local ArgUpdateMelDir=$2
+	local ArgCreateCumulativeReadMe=$3
+	local FileName="README."
+	local CurrentPackageName=""
+	local PreviousPackageName=""
+	local CurrentBSPName=""
+	local PreviousBSPName=""
+	local PreviousLine=""
+	local PreviousCVENumber=""
+	local CVENumber=""
+	local CVEString=""
+	local NoCVEFound=0		
+	local URLString="* https://nvd.nist.gov/vuln/detail/"
+	local ReadMe_Cumulative_String=""
+	local StringForCumulativeReadME=": See "
+	local recipe_directory="recipes-"
+	
+	if  [ "$ArgUpdateMelDir" = "" ]; then
+		echo -e "Error Occured. \n[Hint] : Provide update-mel Directory \n" && exit
+	fi
+				
+	echo -e "\nDo you really want to create README files for packages?"
+	while read -n1 -r -p "choose [y]es|[n]o "; do
+		case $REPLY in
+			y) break;;
+			n) echo " "; break;;
+			*) echo "	What?";;
+		esac
+	done
+	if [ $REPLY == "y" ]; then 
+		echo -e "\nCreating README Files"
+		if [ ! -e ./$LOGS_DIR/CveWithPackageName.txt ] && [ "$ArgCreateCumulativeReadMe" == "cumulative" ]; then 	## if this file is not present, create a new one for README-mel-cumulative
+			PackageNameNumber=""			
+			if [ -e ./$LOGS_DIR/reported_cve.txt ];then
+				while read -r cve; do
+					if ( echo "$cve" | grep -q ' ' ); then # if line contains spaces it means line has Package name and Version Number 
+						PackageNameNumber="$(echo "$cve")"
+					elif [ "$cve" == "0" ]; then
+						cve=$cve ## dummy entry to satisfy elif
+					else 
+						echo -n "$PackageNameNumber" >> ./$LOGS_DIR/TmpCveWithPackageName.txt 
+						echo -n ": " >> ./$LOGS_DIR/TmpCveWithPackageName.txt               
+						echo "$cve" >> ./$LOGS_DIR/TmpCveWithPackageName.txt 	
+					fi
+				done < ./$LOGS_DIR/reported_cve.txt
+				if [ -e ./$LOGS_DIR/TmpCveWithPackageName.txt ]; then
+					sort ./$LOGS_DIR/TmpCveWithPackageName.txt | uniq > ./$LOGS_DIR/CveWithPackageName.txt
+				fi 	
+			else
+				echo "No reported_cve.txt found in Logs" && exit	
+			fi	
+		fi
+		ScriptDir="$(pwd)" ## assuming script directory has all other directories needed for script	
+		cd $(find ./ -name $ArgUpdateMelDir -type d | grep "$NORMAL_RELEASE_DIR") ### that grep will prevent from entering any other directory found with same update-mel-x layer in other folders within MEL release	 
+		if [ "$(pwd)" == "($ScriptDir)" ]; then
+			echo "No Provided Directory Found" && exit
+		fi	 
+				
+		# find all patches in update directory 
+		find ./ -name *.patch > TmpPatchedPackagesInfo.txt
+		#find ./ -name *.sh >> TmpPatchedPackagesInfo.txt
+		sort TmpPatchedPackagesInfo.txt | uniq > PatchedPackagesInfo.txt
+		rm TmpPatchedPackagesInfo.txt
+		## We need to append a dummy line at the end of file because in the following loop when a package is parsed; it is not written to file until another package is started to parse.
+		## It creates a problem when last package is parsed, it is not written to the README file because a package info is not written to file until some other package is started to parse
+		## SO by adding the dummy line, we do not need to replicate the code of while loop outside of it so keeo the code short and more understandable
+		echo "./recipes-dummy/dummy/files/dummy-fix-CVE-0000-0000.patch" >> PatchedPackagesInfo.txt  	
+		
+		while read -r line; do
+			CurrentPackageName="$(echo $line | awk -F-fix '{print $1}' | sed 's:.*/::')" ## get Package name
+			CurrentBSPName="$(echo $line | awk -F[//] '{print $2}')" ## get the first word of line.It shall be either BSP folder name or "resipes-..." string
+		## Now check if either package name or the BSP/recipes-* word differs, it means time to write info to the file because some new package is to be processed
+			if [ "$CurrentPackageName" != "$PreviousPackageName" ] || [ "$CurrentBSPName" != "$PreviousBSPName" ]; then
+				if [ ! -z "$CVEString" ]; then ## if that string is empty, it means we entered in the loop for the first time
+					if echo "$PreviousBSPName" | grep -q "$recipe_directory" ## check either BSPName contains the BSP name or "recipe-" word
+					then
+						if echo "$PreviousBSPName" | grep -q "recipes-linux"
+						then
+							FileName=$FileName"kernel"
+						else
+							## if BspNAME string conatins the "recipes-" word then it means package is not specific to some BSP so write README.<packageName>
+							FileName=$FileName$PreviousPackageName 
+						fi
+					else
+						if echo "$PreviousLine" | cut -d'/' -f3 | grep -q "recipes-linux" ## extract the second field which shall occue after third "/" (./BSPNAME/recipes-linux)
+						then							
+							FileName=$FileName$PreviousBSPName"_kernel"						
+						else						
+							FileName=$FileName$PreviousBSPName"_"$PreviousPackageName ## if contains BSP name, then its for specific BSP so append the name of BSP
+						fi
+					fi
+					## write info to the file			
+					echo "$README_INDIVIDUAL_FIRST_HALF" > $FileName
+					echo "$CVEString" >> $FileName
+					echo "$README_INDIVIDUAL_SECOND_HALF" >> $FileName
+					
+######################################## ReadMe Cumulative relted task ###################################################################################					
+					## check if user has asked for README-cumulative as well. Though even if user has not asked for cumulative, data shall be manipulated until the following step 
+					#  becasue to ask user for cumulative added after the design.Though it was not neccessary.		 	
+					if [ "$ArgCreateCumulativeReadMe" == "cumulative" ] && [ -e ./../"$CUMULATIVE_README_NAME" ]; then
+						ReadMe_Cumulative_String=$(echo "$ReadMe_Cumulative_String" | sed "s/$/\/${FileName}/") ## append file name at end of each line (next line character)
+						ReadMe_Cumulative_String=$(echo "$ReadMe_Cumulative_String" | sed '/^\// d' ) ## remove line contains only "/filename" resultant of above command.Find 
+															      #	some other suitable command for future 	
+						LineNumberOfLastOccurenceOfCVE=$(grep -n 'CVE-' ./../$CUMULATIVE_README_NAME | tail -1 | cut -d: -f1) ## get the line number of last occurence of \   																			      # "CVE-"keyword assuming that no "CVE-" keyword \
+						 												      #	would be used in other than place for listing CVE
+						## append at specified line number
+						while read -r string
+						do
+							((LineNumberOfLastOccurenceOfCVE=LineNumberOfLastOccurenceOfCVE+1)) #we get line number of last CVE occurence so add before using it
+							sed -i "${LineNumberOfLastOccurenceOfCVE} i${string}" ./../"$CUMULATIVE_README_NAME"	
+						done <<< "$ReadMe_Cumulative_String"
+					fi
+############################################################################################################################################################												
+					PreviousPackageName=$CurrentPackageName
+					PreviousBSPName=$CurrentBSPName
+					CVEString=""
+					ReadMe_Cumulative_String=""
+					FileName="README."
+				else
+					PreviousPackageName=$CurrentPackageName
+					PreviousBSPName=$CurrentBSPName				
+				fi
+			fi
+			NoCVEFound=0;	
+			CVENumber="$(echo $line | awk -F.patch '{print $1}' | cut -f1 -d"_" | awk '{print $NF}' FS=fix-)" ## get the CVE number
+			if [ "$CVENumber" == "" ]; then
+				echo "PatchedPackagesInfo.txt: Empty Line Found" && exit
+			elif [[ ! "$CVENumber" == CVE* ]]; then ## check if CVE-Number contains CVE keyword
+				echo "Issue: No CVE Keyword found but processing it."
+				CVENumber="$(echo $line | awk -F.patch '{print $1}' | sed 's@.*/@@')" ## remove .ptach and all before last '\'
+				NoCVEFound=1;		
+			fi
+			
+			if [ "$(echo "$CVEString" | grep "$CVENumber")" == "" ]; then ## check if more than one CVE Patch is found 
+				if [ "$(echo "$CVENumber" |  awk -FCVE- '{print $1}')" != "" ]; then # there may be some patches for correcting already appplied patch, in that case extract CVE number only e.g typo-CVE-. "fix keyword is removed in above extraction"	 
+					CVENumber="$(echo "$CVENumber" | sed 's/^.*\(CVE-.*\)/\1/g')"					
+				fi
+				CVEString=$CVEString$CVENumber$'\n' ## append CVE number
+				if [ $NoCVEFound == 0 ]; then
+					CVEString=$CVEString$URLString$CVENumber$'\n' ## write URL in new line
+				else
+					CVEString=$CVEString
+				fi	
+######################################## ReadMe Cumulative relted task ###################################################################################				
+				if [ -e $ScriptDir/$LOGS_DIR/CveWithPackageName.txt ] && [ "$ArgCreateCumulativeReadMe" == "cumulative" ] && [ $NoCVEFound == 0 ]; then
+					while true; do	
+						MatchedCVECounter=$(grep -c $CVENumber $ScriptDir/$LOGS_DIR/CveWithPackageName.txt) # get how many results
+						MatchedCVE="$(grep -r $CVENumber $ScriptDir/$LOGS_DIR/CveWithPackageName.txt)" ## get the matches
+					
+						if [[ "$MatchedCVE" == "" && "$CVENumber" != "CVE-0000-0000" ]]; then ## CVE-0000-0000 is appended in file to satisfy this whole logic for last CVE.Just ignore it
+							echo -e "Issue: No CVE: ' "$CVENumber" ' found in CveWithPackageName.txt \nHint: Add it in file manually and hit enter for retry \n"
+							read </dev/tty
+						else
+							break;
+						fi
+					done
+					
+					if [  $MatchedCVECounter -gt 1 ]; then
+						## Now ask user a cve reported for multiple packages. Now provide the exact one.
+						echo "Current Package processing $line"
+					 	echo "More than one match found for CVE. Choose a single one :"
+					 	echo "$(grep -r $CVENumber $ScriptDir/$LOGS_DIR/CveWithPackageName.txt)"
+					 	echo " choose 1 to $MatchedCVECounter"
+					 	
+					 	UserInput=0	
+					 	while true ; do
+					 		read UserInput </dev/tty
+							if [[ ! $UserInput || $UserInput = *[^0-9]* ]];then
+								echo "Issue: Provide a number"
+							else
+								if [ $UserInput -gt $MatchedCVECounter ] || [ $UserInput -le 0 ]; then
+									echo "Enter a valid Number"
+								else
+									MatchedCVE="$(sed -n ${UserInput}p <<< "$MatchedCVE")" ## extract that line number from string
+									echo "Used : $MatchedCVE"
+									break;
+								fi
+							fi					
+						done
+					fi	 	
+					#Format of below line <PackageName> <Version>: <CVE>  : See <DirectoryConatingReadmeFiles>					
+					ReadMe_Cumulative_String=$ReadMe_Cumulative_String$MatchedCVE$StringForCumulativeReadME$ArgUpdateMelDir$'\n'
+				fi
+############################################################################################################################################################					
+			fi
+			PreviousCVENumber=$CVENumber			
+			PreviousLine=$line
+		done < PatchedPackagesInfo.txt
+		rm PatchedPackagesInfo.txt
+		if [ ! -z "$(find -name *.bb)" ];then
+			echo -e "\n \t \t [NOTE] : If there is any recipe updated, Kindly check for it manually"	
+		fi	
+	fi
+}
+
+function DeleteAllAfterLastSlash
+{
+	echo "$1" | sed 's:/[^/]*$::'
+}
+
+function DeleteAllBeforeLastSlash
+{
+	echo "$1" | sed 's@.*/@@'
+}
+
+function RemoveLinesWithParticularCharWords
+{
+	grep -v "$1" "$2" ## 1=word 2= file
+}
+
+
+function CreateCommit 
+{
+	if [ "$1" == "" ];then
+		echo "Directory Argument missing" && exit
+	fi	
+	local ArgUpdateMelDir=$1
+	local PackageName=""
+	local TmpFileContentVar
+	local RecipeUpdateStatus=0
+	local CommitStatus=0
+	
+	echo -e " \n \t NOTE : You will be asked to remove a line.\n \t Kindly remove it otherwise change will not be commited \n"
+	echo "Hit any key to continue"
+	read
+	ScriptDir="$(pwd)" ## assuming script directory has all other directories needed for script
+	cd $(find -name $ArgUpdateMelDir -type d | grep "$NORMAL_RELEASE_DIR")	 
+	if [ "$(pwd)" == "($ScriptDir)" ]; then
+		echo "No Provided Directory Found" && exit
+	fi
+## delete tmp files to avoid addition in commits
+	echo "Deleting Temporary files"
+	find -name *~ -delete	
+## commit patches
+	# find leaf subdirectory| get only lines with "files" 
+	TmpVar="$(find . -type d -links 2 | grep "/files")"
+	#delete after last slash
+	DeleteAllAfterLastSlash "$TmpVar" > DirToCommit.txt
+	echo "$CommitMessageTemplate_Patch" > CommitMessageTemplate.txt
+	DirectoriesToCommit=`cat DirToCommit.txt`
+	echo "Following directories would be checked for Changes"
+	echo -e "$DirectoriesToCommit\n"
+	for directory in $DirectoriesToCommit 
+	do
+		cd $directory > /dev/null		
+		if [[ -z "$(find -name *.bb)" ]]; then
+			cd - > /dev/null
+			git add --all $directory
+			##get status of commit | get lines with 'new file' keyword | remove everything before ':' | remove all spaces | remove everything before last slash
+			git status | grep ":" | grep "$(echo "$directory" | sed 's/^.\///' )" | cut -d':' -f2 | tr -d ' ' | sed 's@.*/@@' | awk -F.patch '{print $1}' | \
+			awk '{print $NF}' FS=fix- > TmpFilesToCommit.txt ## do not remove here '_' becuase bbappend files have it which would not be possible to remove later
+			if [ -s TmpFilesToCommit.txt  ]; then
+				## get the package name and write at start of file
+				TmpFileContentVar=$(cat CommitMessageTemplate.txt) 
+				echo "$(DeleteAllBeforeLastSlash "$directory")$TmpFileContentVar" > CommitMessage.txt
+				## remove .bbappend files
+				RemoveLinesWithParticularCharWords ".bbappend" TmpFilesToCommit.txt >  PatchesToIncludeInCommitMessage.txt
+				## cat file | remove '_' from multiple patches for a CVE _1,_2 etc..| sort | uniq to remove duplicates 
+				cat PatchesToIncludeInCommitMessage.txt | cut -f1 -d"_" | sort | uniq >> CommitMessage.txt
+				echo -e "\n [ Kindly review commit message and commit it ]"
+				echo -e "\nHit any key to continue"
+				read
+				git commit -t CommitMessage.txt
+				if [[  "$?" != "0" ]];then
+					echo -e "\n [ ERROR: Failed to commit.Resetting HEAD ]"
+					echo -e "   HINT: If editor appears, kindly remove <remove me> line to successfully commit"
+					git reset HEAD > /dev/null
+				else
+					echo "Commited Successfully"
+				fi
+				CommitStatus=1
+			fi	
+		else
+			echo "Recipe Update Found.Commit it Manually"
+			cd -
+			RecipeUpdateStatus=1;
+		fi
+	done
+	if [ $CommitStatus -ne 1 ];then
+		echo "No change Found"
+	fi
+	echo ""
+	CommitStatus=0
+## commit README
+	while read -n1 -r -p "Do you want to generate Commits for README? [y]es|[n]o "; do
+		case $REPLY in
+			y) break;;
+			n) echo " "; break;;
+			*) echo "	What?";;
+		esac
+	done
+	if [ $REPLY == "y" ]; then
+		echo "Deleting Temporary files"
+		find -name '*~' -delete
+		find -name '*README.*' >  FilesToCommit.txt
+		echo "$CommitMessageTemplate_ReadME" > CommitMessageTemplate.txt
+		FilesToCommit=`cat FilesToCommit.txt`
+		echo "Following files would be checked for changes"
+		echo "$FilesToCommit"
+		for File in $FilesToCommit 
+		do
+			echo "$File"
+			git add $File
+			##get status of commit | get lines with 'new file' keyword | remove everything before ':' | remove all spaces
+			git status | grep "new file" | grep "$(echo "$File" | sed 's/^.\///' )" | cut -d':' -f2 | tr -d ' ' > TmpFilesToCommit.txt
+			if [ -s TmpFilesToCommit.txt  ]; then
+				## get the READMe file Name and write at start of file
+				TmpFileContentVar=$(cat CommitMessageTemplate.txt) 
+				echo "$(DeleteAllBeforeLastSlash "$File")$TmpFileContentVar" > CommitMessage.txt
+				echo "Kindly review commit message and commit it"
+				echo -e " \nHit any key to continue"
+				read
+				git commit -t CommitMessage.txt
+				if [[  "$?" != "0" ]];then
+					echo -e "\n [ ERROR: Failed to commit.Resetting HEAD ]"
+					echo -e "   HINT: If editor appears, kindly remove <remove me> line to successfully commit"
+					git reset HEAD > /dev/null
+				else
+					echo "Commited Successfully"
+				fi
+				CommitStatus=1
+			fi	
+		done
+	fi
+	if [ $CommitStatus -ne 1 ];then
+		echo -e "\n\n No change Found \n"
+	fi
+	echo "Commits task completed. Kindly check the log"
+	
+	if [  RecipeUpdateStatus == 1 ];then
+		echo " [ ISSUE ] : There is any Recipe Update.Kindly commit it manually".
+	fi
+	rm Commit* DirToCommit.txt PatchesToIncludeInCommitMessage.txt Tmp* > /dev/null
+}
+
+function CreateCleanLogFromAccumulated
+{
+	if [ -d ./$LOGS_DIR ]; then
+	    [ "$(ls -A ./$LOGS_DIR)" ] && rm ./$LOGS_DIR/* || echo "No Old Logs Found"
+	else
+	    mkdir ./$LOGS_DIR
+	fi
+	if [ -e accumulated_cve_report.log ]; then
+		cp accumulated_cve_report.log $LOGS_DIR 	
+	else
+		echo "cve_accumulated.log not found " && exit
+	fi
+	cd $LOGS_DIR	
+	# Get all files with name isafw_cvelog | get lines with CVE- | remove pkg info: | sort | remove duplicate lines (if any) | Remove all Comma(s)
+	cat accumulated_cve_report.log | grep CVE- | sed '/-native/d' | awk '{gsub("pkg info: ", "");print}' | sort | uniq | tr -s ',' ' ' > CVEFile.txt
+
+	#Get one liner log in a varibale
+	CVE_LOG=`cat CVEFile.txt`
+	#Format the log 
+	for word in $CVE_LOG; do
+		if [[ ${word:0:1} == [[:lower:]] ]] ; then
+			echo -n "$word " >> reported_cve.txt
+		elif [[ ${word:0:1} == [:digit:] ]] ; then
+			echo "$word"  >> reported_cve.txt
+		else
+			echo "$word"  >> reported_cve.txt
+		fi
+	done
+	cp reported_cve.txt ./../	
+	echo "CVE Information generated" 
+}
+
+
+function ShowHelp
+{
+	echo -e "[ HELP ] \n"
+	echo "<*>  -R <update-mel-* folder> :"
+	echo -e "	Just provide name of folder to create ReadME files\n"	
+	echo "<*>  -R <update-mel-* folder> cumulative :"
+	echo "	Just provide name of folder to create ReadME files "
+	echo -e "	and append info to cumulative ReadME as well \n"	
+	echo "<*>  -r html <Release Name Present in Current Working Directory> : "
+	echo "	It shall search for CVE in provided directory name, " 
+	echo -e "	should be placed in 'Releases' directory.\n"
+	echo -e "<*>  -c <Folder_Name_1> <Folder_Name_2> :"
+	echo "	If two folder names are provided,It would be treated as   "
+	echo "	if need to check for CVE Patches present in 'Folder_Name_2'  "
+	echo "	but not in 'Folder_Name_1'.These two folders must be " 
+	echo -e "	'PokyReleases' named directory.\n"
+	echo "<*>  -a :	"  
+	echo "	Just Analyse Current Mel Release.It shall look into the 'MelReleases' "
+	echo "	directory for CVE Patches, listed in 'reported_cve.txt' and " 
+	echo "	check for valid CVE using cve_check file info."
+	echo -e "	'reported_cve.txt' shall be used present in Log Directory.\n"
+	echo "<*>  -a html :	"  
+	echo "	Just Analyse Current Mel Release.It shall look into the 'MelReleases' "
+	echo "	directory for CVE Patches, listed in 'reported_cve.txt' and " 
+	echo -e "	check for valid CVE using cve_*.html file info.\n"
+	echo -e "<*>  -j : \n	Create report form Jenkins CVE log \n"
+	echo "<*>  -C <update-mel-* folder> :"
+	echo "	Commits the changes.Currently only recipe ".bbapppend" changes and"
+	echo -e	"	README supported.\n"
+}
+
+###################################################################################################################################
+
+################### Start of Main Script ##############################
+
+echo -e "\n \t \t [ CVE Log Analyser ] \n \n "
+
+if [ "$1" == "-h" ] || [ "$1" == "" ]; then
+	ShowHelp
+elif [ "$1" == "-j" ]; then
+	CreateCleanLogFromAccumulated	
+elif [ "$1" == "-R" ]; then   ## Create README
+	CreateReadme_s "$1" "$2" "$3"		
+elif [ "$1" == "-C" ]; then ## Create Commits
+	CreateCommit $2
+elif [[ "$1" == "-a" || "$1" == "-r" ]]; then
+	#delete old Reports
+	if [ -d ./$REPORTS_DIR ]; then
+	    [ "$(ls -A ./$REPORTS_DIR)" ] && rm ./$REPORTS_DIR/* || echo "No Old Reports Found"
+	else
+	    mkdir ./$REPORTS_DIR
+	fi
+	#delete old Logs
+	if [ -d ./$LOGS_DIR ]; then
+	    [ "$(ls -A ./$LOGS_DIR)" ] && cp ./$LOGS_DIR/reported_cve.txt ./ &&  rm ./$LOGS_DIR/* || echo "No Old Logs Found"
+	else
+	    mkdir ./$LOGS_DIR
+	fi
+	#Copy CVE logs to Logs folder
+	if [ -e reported_cve.txt ]; then
+		cp reported_cve.txt ./$LOGS_DIR
+	else
+		echo "No CVE Log found" && exit
+	fi
+	
+	if [ -e accumulated_cve_check.log ]; then
+		cp accumulated_cve_check.log ./$LOGS_DIR
+		FILE_STATUS=1
+	else
+		echo "No CVE_CHECK File found"
+	fi
+	
+	if [ FILE_STATUS == 0 ]; then ## it means no file about patched and unpatched info exists
+		echo "No html or cve_check file found. Aborting.."		
+		exit
+	fi
+	
+	if [ -e YoctoCVEList.txt ]; then 
+		cp YoctoCVEList.txt ./$LOGS_DIR
+	fi
+
+	##Refine html file
+	cd $LOGS_DIR
+	TmpFileWithoutTags=""
+	if [ "$2" == "html" ]; then
+		echo "Filter Html file."
+		# get the test between tags of html file
+		sed 's/<[^>]*>//g' accumulated_cve_check.log > TmpFileWithoutTags
+	else
+		cp ./../accumulated_cve_check.log ./ 
+		sed -i '/CVE database was updated/d' accumulated_cve_check.log ## remove all such lines cotaining this string
+		cp accumulated_cve_check.log TmpFileWithoutTags
+	fi
+	# Remove all text before first CVE- keyword i.e. first CVE reported 
+	sed '/CVE-/,$!d' TmpFileWithoutTags > TmpFileHeaderRemoved
+	# set all empty lines with ">" and then uniq to remove consecutive repition of ">" 
+	awk '!NF{$0=">"}1' TmpFileHeaderRemoved | uniq > TmpFileWithoutEmptyLines
+	# write "<" in new line next to ">".They will be used as starting and ending mark for a CVE information
+	sed 's/> \?/>\n</g' TmpFileWithoutEmptyLines > TmpFileWithMarks
+	# write "<" at start of file which will be missing
+	sed -i '1i<' TmpFileWithMarks
+	# Now remove CVE info conatainig either Patched tag or Android Tag
+	awk '/</{rec=""; f=1} f{rec = rec $0 ORS} />/{ if (f && (rec !~ "Patched" && rec !~ "Android") ) printf "%s",rec; f=0}' TmpFileWithMarks > Valid_CVE_reported.txt
+	rm -f TmpFile*
+	cd ..
+	
+## check for CVE patches present in current MEL release according to Version Number
+	echo -n "Looking at Mel Release for Patched CVE [ "
+	cd $NORMAL_RELEASE_DIR
+	PackageNameNumber=""
+	Counter=0
+	Lines=$(wc -l < ./../$LOGS_DIR/reported_cve.txt) 
+	while read -r file; do
+		if ( echo "$file" | grep -q ' ' ); then # if line contains spaces it means line has Package name and Version Number 
+			PackageNameNumber="$(echo "$file")"
+		elif [ "$file" == "0" ]; then
+			(Counter=Counter)
+		elif [ ! -z "$(grep -r "$file" ./../$LOGS_DIR/Valid_CVE_reported.txt)" ]; then #check if that CVE entry is present in refined html file or cve_check
+			SearchedOutput="$(grep -r "$file" ./)" 
+			if [ ! -z "$(echo $SearchedOutput | grep "$PackageNameNumber")" ]; then ## if searched CVE output has package number then declare patched  
+				echo "$file" >>  ./../$LOGS_DIR/TempVersionedPatchedCve.txt
+			else
+				echo "$file" >> ./../$LOGS_DIR/TempVersionedToBePatchedCve.txt
+				echo -n "$PackageNameNumber" >> ../$LOGS_DIR/TmpCveWithPackageName.txt 
+				echo -n ": " >> ../$LOGS_DIR/TmpCveWithPackageName.txt               
+				echo "$file" >> ../$LOGS_DIR/TmpCveWithPackageName.txt 	
+			fi
+
+			if [ ! -z "$(echo $SearchedOutput | grep "updates/update-mel-")" ]; then
+				echo "$file" >>  ./../$LOGS_DIR/PatchedInUpdate.txt
+			elif [ ! -z "$(echo $SearchedOutput)" ]; then
+				echo "$file" >>  ./../$LOGS_DIR/PatchedInOtherLayers.txt
+			fi
+		fi
+		((Counter=Counter+1))
+		((Temp=($Counter * 100)))	
+		Percentage=$(( $Temp / $Lines ))
+		if [ $Percentage -lt 10 ]; then
+			echo -ne "$Percentage % ]\b\b\b\b\b"
+		else
+			echo -ne "$Percentage % ]\b\b\b\b\b\b"
+		fi	
+	done < ./../$LOGS_DIR/reported_cve.txt
+	echo -e "\n"
+
+## Format Generated Logs
+	rm ./../reported_cve.txt
+	if [ -e ./../$LOGS_DIR/TmpCveWithPackageName.txt ]; then
+		sort ./../$LOGS_DIR/TmpCveWithPackageName.txt | uniq > ./../$LOGS_DIR/CveWithPackageName.txt
+	fi
+
+	if [ -e ./../$LOGS_DIR/TempVersionedPatchedCve.txt ]; then
+		sort -n ./../$LOGS_DIR/TempVersionedPatchedCve.txt | uniq > ./../$LOGS_DIR/VersionedPatchedCve.txt
+		cp ./../$LOGS_DIR/VersionedPatchedCve.txt ./../$REPORTS_DIR/
+	fi
+
+	if [ -e ./../$LOGS_DIR/PatchedInUpdate.txt ]; then
+		sort -n ./../$LOGS_DIR/PatchedInUpdate.txt | uniq > ./../$REPORTS_DIR/PatchedInUpdate.txt
+	fi
+
+	if [ -e ./../$LOGS_DIR/PatchedInOtherLayers.txt ]; then
+		sort -n ./../$LOGS_DIR/PatchedInOtherLayers.txt | uniq > ./../$REPORTS_DIR/PatchedInOtherLayers.txt
+	fi
+
+	if [ -e ./../$LOGS_DIR/TempVersionedToBePatchedCve.txt ]; then
+		sort -n ./../$LOGS_DIR/TempVersionedToBePatchedCve.txt | uniq > ./../$LOGS_DIR/VersionedToBePatchedCve.txt
+		cp ./../$LOGS_DIR/VersionedToBePatchedCve.txt ./../$REPORTS_DIR/
+	fi
+
+## Check User Command arguments,if asked then list new patches of CVE present in latest Yocto Release by comparing with old release we have already checked for patches else just rename
+	## "cat ./../$REPORTS_DIR/VersionedToBePatchedCve.txt" for further script comaptibilty
+	if [ "$1" ==  "-c" ]; then  
+		echo "Looking at Yocto Layer..."
+		cd ./../$POKY_RELEASE_DIR/
+		#diff -r old new
+		diff -r $2 $3 \
+		| grep $3 | awk '{print $4}' \
+		| grep CVE \
+		| while read -r file; do find ./"$3" -name "$file"; done > ./../$LOGS_DIR/YoctoCVEList.txt
+
+		echo "Formatting Logs..."
+		cd ./../$LOGS_DIR/
+
+		## Format Yocto CVE list
+
+		#Remove everything before last slash
+		sed 's@.*/@@' YoctoCVEList.txt > TempFormattedYoctoCVEList.txt
+		#Remove any Package name attached to CVE number
+		sed 's/^.*\(CVE-*\)/\1/g' TempFormattedYoctoCVEList.txt > TempFormattedYoctoCVEList_1.txt 
+		#Now Get only CVE Number and remove .patch keyword at aend of CVE number
+		cut -c-13 TempFormattedYoctoCVEList_1.txt > TempFormattedYoctoCVEList_2.txt
+		#sort
+		sort -n TempFormattedYoctoCVEList_2.txt > FormattedYoctoCVEList.txt
+		## Merge Reported CVE to be patched form cve-check-tool and Yocto Pathced CVE list
+		if [ -e ./../$REPORTS_DIR/VersionedToBePatchedCve.txt ]; then
+			cat ./../$REPORTS_DIR/VersionedToBePatchedCve.txt FormattedYoctoCVEList.txt > TempMergedList.txt
+		else
+			cat FormattedYoctoCVEList.txt > TempMergedList.txt
+		fi
+	else
+		echo "No Yocto Layer to be seen for moving patched CVE"
+		if [ -e ./../$REPORTS_DIR/VersionedToBePatchedCve.txt ]; then
+			cat ./../$REPORTS_DIR/VersionedToBePatchedCve.txt > ../$LOGS_DIR/TempMergedList.txt
+		fi
+	fi
+	
+## look at poky layer for patches of reported CVE against MelReleases.It shall be checked if 
+	## user provided only one release of poky.2 releases are considered to be thge work for abu.
+	if [ "$1" ==  "-r" ]; then 
+		cd ./../$RELEASES_DIR/"$3"
+		if [ -e ./../../$LOGS_DIR/VersionedToBePatchedCve.txt ]; then
+			echo -n "Looking at Provided Release for already present Patches [ "
+			Counter=0
+			Lines=$(wc -l < ./../../$LOGS_DIR/VersionedToBePatchedCve.txt) 
+			while read -r file; do 
+				if [ ! -z "$(grep -r "$file" ./)" ]; then 
+					echo "$file" >> ./../../$LOGS_DIR/ReleaseTempPatches.txt	
+				fi
+				((Counter=Counter+1))
+				((Temp=($Counter * 100)))	
+				Percentage=$(( $Temp / $Lines ))
+				if [ $Percentage -lt 10 ]; then
+					echo -ne "$Percentage % ]\b\b\b\b\b"
+				else
+					echo -ne "$Percentage % ]\b\b\b\b\b\b"
+				fi	
+			done < ./../../$LOGS_DIR/VersionedToBePatchedCve.txt
+			echo -e "\n"
+			if [ -e ./../../$LOGS_DIR/ReleaseTempPatches.txt ]; then	
+				cp ./../../$LOGS_DIR/ReleaseTempPatches.txt ./../../$REPORTS_DIR/ReleasePatches.txt
+			fi
+		fi
+		cd ./../ ## move one step before to keep compatability with further below code	
+	fi
+	
+## Remove duplicates from resultant list
+	##For future use : cat TempMergedList.txt | sort -n | uniq | tr -s '\n' ' ' | 
+	##awk '{ while(++i<=NF) printf (!a[$i]++) ? $i FS : ""; i=split("",a); print ""}' | tr " " "\n" | sed '/^\s*$/d' > MergdedList.txt
+	cd ./../$LOGS_DIR/
+	if [ -e TempMergedList.txt ]; then
+		cat TempMergedList.txt | sort -n | uniq > MergedList.txt
+	fi
+
+## Delete Old logs
+	if [ -e TempPatchedCve.txt ]; then
+		rm -r TempPatchedCve.txt
+	fi
+
+	if [ -e TempToBePatchedCve.txt ]; then
+		rm -r TempToBePatchedCve.txt
+	fi
+	
+## check for CVE patches not present in current MEL release
+	cd ./../$NORMAL_RELEASE_DIR
+	if [ -e ../$LOGS_DIR/MergedList.txt ]; then
+		echo -n "Looking at Mel Release for Non-Versioned Patched CVE [ "
+		Counter=0
+		Lines=$(wc -l < ./../$LOGS_DIR/MergedList.txt) 
+		while read -r file; do 
+			if [ ! -z "$(grep -r "$file" ./)" ]; then 
+				echo "$file" >>  ./../$LOGS_DIR/TempPatchedCve.txt
+			else
+				echo "$file" >> ./../$LOGS_DIR/TempToBePatchedCve.txt	
+			fi
+			((Counter=Counter+1))
+			((Temp=($Counter * 100)))	
+			Percentage=$(( $Temp / $Lines ))
+			if [ $Percentage -lt 10 ]; then
+				echo -ne "$Percentage % ]\b\b\b\b\b"
+			else
+				echo -ne "$Percentage % ]\b\b\b\b\b\b"
+			fi	
+		done < ./../$LOGS_DIR/MergedList.txt
+		echo -e "\n"
+	fi
+
+## Generating Reports
+	echo "Generating Reports..."
+	cd ./../$REPORTS_DIR
+
+	if [ -e ./../$LOGS_DIR/TempToBePatchedCve.txt ]; then
+		uniq -u ./../$LOGS_DIR/TempToBePatchedCve.txt > ToBePatchedCve.txt
+	fi
+
+	if [ -e ./../$LOGS_DIR/TempPatchedCve.txt ]; then
+		uniq -u ./../$LOGS_DIR/TempPatchedCve.txt > PatchedCve.txt
+	fi
+
+	if [[ -e ./../$LOGS_DIR/FormattedYoctoCVEList.txt && -e VersionedToBePatchedCve.txt ]]; then
+		grep -f ./../$LOGS_DIR/FormattedYoctoCVEList.txt VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInYoctoLayer.txt
+		PatchesForCVEPresentInYoctoLayer (){
+		wc -l < PatchesForCVEPresentInYoctoLayer.txt
+		}
+		echo -n "Patches can be found in Yocto Release = "
+		echo "$(PatchesForCVEPresentInYoctoLayer)"
+		if [ -e ./../$LOGS_DIR/CveWithPackageName.txt ]; then
+			while read -r file; do
+				SearchedOutput="$(grep $file ./../$LOGS_DIR/CveWithPackageName.txt)"
+				if [ ! -z "$SearchedOutput" ]; then			
+					echo "$SearchedOutput" >> TmpPatchesForCVEPresentInYoctoLayer.txt
+				else
+					echo $file >> TmpPatchesForCVEPresentInYoctoLayer.txt
+				fi
+			done < PatchesForCVEPresentInYoctoLayer.txt
+			sort TmpPatchesForCVEPresentInYoctoLayer.txt > PatchesForCVEPresentInYoctoLayer.txt
+			rm TmpPatchesForCVEPresentInYoctoLayer.txt	
+		fi
+	fi
+
+
+	if [[ -e PatchedCve.txt && -e VersionedToBePatchedCve.txt ]]; then
+	#	grep -f PatchedCve.txt VersionedToBePatchedCve.txt | sort -n | uniq > PatchesForCVEPresentInMelRelease.txt
+		NumberOfPatchesInMelRelease (){
+		wc -l < PatchedCve.txt
+		}
+		echo -n "Patches can be found in Mel Release = "
+		echo "$(NumberOfPatchesInMelRelease)"
+	fi
+
+	if [[ -e ToBePatchedCve.txt && -e ./../$LOGS_DIR/FormattedYoctoCVEList.txt ]]; then
+		grep -f ./../$LOGS_DIR/FormattedYoctoCVEList.txt ToBePatchedCve.txt > PatchesToBeMovedFromYocto.txt
+		NumberOfPatchesToBeMovedFromYocto (){
+		wc -l < PatchesToBeMovedFromYocto.txt
+		}
+		echo -n "Patches to be moved from Yocto = "
+		echo "$(NumberOfPatchesToBeMovedFromYocto)"
+		if [ -e ./../$LOGS_DIR/CveWithPackageName.txt ]; then
+			while read -r file; do
+				SearchedOutput="$(grep $file ./../$LOGS_DIR/CveWithPackageName.txt)"
+				if [ ! -z "$SearchedOutput" ]; then			
+					echo "$SearchedOutput" >> TmpPatchesToBeMovedFromYocto.txt
+				else
+					echo $file >> TmpPatchesToBeMovedFromYocto.txt
+				fi
+			done < PatchesToBeMovedFromYocto.txt
+			sort TmpPatchesToBeMovedFromYocto.txt > PatchesToBeMovedFromYocto.txt
+			rm TmpPatchesToBeMovedFromYocto.txt
+		fi	
+	fi
+
+	if [ -e ReleasePatches.txt ]; then
+		if [[ -e VersionedToBePatchedCve.txt && -e PatchedCve.txt ]]; then
+			grep -v -f <(sort PatchedCve.txt) <(sort VersionedToBePatchedCve.txt) | uniq > ./../$LOGS_DIR/Temp.txt
+			grep -f <(sort ReleasePatches.txt) ./../$LOGS_DIR/Temp.txt > PatchesForCVEPresentInProvidedRelease.txt
+		elif [ -e VersionedToBePatchedCve.txt ]; then
+			grep -f <(sort ReleasePatches.txt) <(sort VersionedToBePatchedCve.txt) | uniq > PatchesForCVEPresentInProvidedRelease.txt
+		fi
+		
+		if [ -e PatchesForCVEPresentInProvidedRelease.txt ]; then	
+			NumberOfPatchesInprovidedRelease (){
+			wc -l < PatchesForCVEPresentInProvidedRelease.txt
+			}
+			echo -n "Patches can be found in Provided Release = "
+			echo "$(NumberOfPatchesInprovidedRelease)"
+			if [ -e ./../$LOGS_DIR/CveWithPackageName.txt ]; then
+				while read -r file; do
+				        SearchedOutput="$(grep $file ./../$LOGS_DIR/CveWithPackageName.txt)"
+					if [ ! -z "$SearchedOutput" ]; then			
+						echo "$SearchedOutput" >> TmpPatchesForCVEPresentInProvidedRelease.txt
+					else
+						echo $file >> TmpPatchesForCVEPresentInProvidedRelease.txt
+					fi	
+				done < PatchesForCVEPresentInProvidedRelease.txt
+				sort TmpPatchesForCVEPresentInProvidedRelease.txt > PatchesForCVEPresentInProvidedRelease.txt
+				rm TmpPatchesForCVEPresentInProvidedRelease.txt
+				rm ReleasePatches.txt
+			fi
+		fi		
+	fi
+	
+	if [[ -e VersionedToBePatchedCve.txt && -e PatchedCve.txt ]]; then
+			grep -v -f <(sort PatchedCve.txt) <(sort VersionedToBePatchedCve.txt) | uniq > ./../$LOGS_DIR/TempFinalToBePatched.txt
+	fi		
+	
+	if [ -e ./../$LOGS_DIR/CveWithPackageName.txt ]; then
+		#list CVE with pacakge name
+		if [ -e  PatchedInOtherLayers.txt  ]; then 		
+			while read -r file; do
+				grep $file ./../$LOGS_DIR/CveWithPackageName.txt >> TmpPatchedInOtherLayers.txt
+			done < PatchedInOtherLayers.txt
+			sort TmpPatchedInOtherLayers.txt > PatchedInOtherLayers.txt
+			rm TmpPatchedInOtherLayers.txt
+		fi
+		if [ -e  PatchedInUpdate.txt  ]; then 
+			while read -r file; do
+				grep $file ./../$LOGS_DIR/CveWithPackageName.txt >> TmpPatchedInUpdate.txt
+			done < PatchedInUpdate.txt
+			sort TmpPatchedInUpdate.txt > PatchedInUpdate.txt
+			rm TmpPatchedInUpdate.txt
+		fi
+		if [ -e  ./../$LOGS_DIR/TempFinalToBePatched.txt  ]; then 
+			while read -r file; do
+				grep $file ./../$LOGS_DIR/CveWithPackageName.txt >> FinalToBePatched.txt
+			done < ./../$LOGS_DIR/TempFinalToBePatched.txt
+			sort FinalToBePatched.txt > ToBePatched.txt
+			rm FinalToBePatched.txt
+			NumberOfCVEToBePatched (){
+				wc -l < ToBePatched.txt 
+			}
+			echo -n "Number of CVE to be patched are = "
+			echo "$(NumberOfCVEToBePatched)"
+			
+		elif [ -e VersionedToBePatchedCve.txt ]; then
+			while read -r file; do
+				grep $file ./../$LOGS_DIR/CveWithPackageName.txt >> FinalToBePatched.txt
+			done < ./../$LOGS_DIR/VersionedToBePatchedCve.txt
+			sort FinalToBePatched.txt > ToBePatched.txt
+			rm FinalToBePatched.txt
+			NumberOfCVEToBePatched (){
+				wc -l < ToBePatched.txt 
+			}
+			echo -n "Number of CVE to be patched are = "
+			echo "$(NumberOfCVEToBePatched)"
+		else
+			echo "Number of CVE to be patched are = 0"
+		fi
+		
+		
+		##cp ./../$LOGS_DIR/CveWithPackageName.txt VersionedToBePatchedCve.txt
+	fi
+	if [ -e ToBePatchedCve.txt ]; then
+		rm ToBePatchedCve.txt # remove it.Not needed to show user	
+	fi
+fi
+
