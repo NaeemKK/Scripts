@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<release>
+	<mel_release name = "MEL 2015.12"> 
+		<package name ="dbus" version = "1.8" source ="bugzilla"/>
+		<package name ="kernel" version = "3.14" source ="bugzilla"/>
+		<package name ="openssl" version = "1.0.2" source ="github"/>
+		<package name ="glibc" version = "2.22" source ="bugzilla"/>
+	</mel_release>
+</release>
